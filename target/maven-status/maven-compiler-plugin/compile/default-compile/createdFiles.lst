@@ -1,4 +1,6 @@
 com/picflow/transforms/NotNullFlag$Value.class
-com/picflow/transforms/NotNullFlag.class
 com/picflow/transforms/JsonStringToMap$Value.class
 com/picflow/transforms/JsonStringToMap.class
+com/picflow/transforms/TombstoneIf.class
+com/picflow/transforms/TombstoneIf$Value.class
+com/picflow/transforms/NotNullFlag.class
