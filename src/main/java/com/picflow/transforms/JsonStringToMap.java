@@ -18,10 +18,8 @@ public abstract class JsonStringToMap<R extends ConnectRecord<R>> implements Tra
 
     @Override
     public void configure(Map<String, ?> configs) {
-        this.fieldName = (String) configs.get("field.name");
-        if (this.fieldName == null || this.fieldName.isEmpty()) {
-            throw new IllegalArgumentException("field.name must be provided");
-        }
+        String configured = (String) configs.get("field.name");
+        this.fieldName = configured == null || configured.isEmpty() ? null : configured;
     }
 
     @Override
@@ -31,6 +29,9 @@ public abstract class JsonStringToMap<R extends ConnectRecord<R>> implements Tra
         }
 
         Object value = getOperatingValue(record);
+        if (fieldName == null) {
+            return parseWholeValue(record, value);
+        }
         if (!(value instanceof Map)) {
             return record;
         }
@@ -79,16 +80,32 @@ public abstract class JsonStringToMap<R extends ConnectRecord<R>> implements Tra
 
             valueMap.put(fieldName, parsed);
 
-            return newRecord(record, null, valueMap);
+            return newRecord(record, record.valueSchema(), valueMap);
         } catch (Exception e) {
             log.error("Failed to parse JSON for '{}': {}", fieldName, e.getMessage(), e);
             return record;
         }
     }
 
+    // Returns a schemaless Map so JsonConverter writes it as plain JSON without
+    // inferring a Connect schema (Debezium's inference rejects arrays like [0.5, 0]).
+    // ponytail: an integer beyond long parses to BigInteger, which schemaless
+    // JsonConverter cannot serialize and fails the task; map it to a supported type if that ever happens.
+    private R parseWholeValue(R record, Object value) {
+        if (!(value instanceof String)) {
+            return record;
+        }
+        try {
+            return newRecord(record, null, objectMapper.readValue((String) value, Map.class));
+        } catch (Exception e) {
+            log.error("Failed to parse JSON value: {}", e.getMessage(), e);
+            return record;
+        }
+    }
+
     @Override
     public ConfigDef config() {
-        return new ConfigDef().define("field.name", ConfigDef.Type.STRING, ConfigDef.Importance.HIGH, "The name of the field containing the JSON string.");
+        return new ConfigDef().define("field.name", ConfigDef.Type.STRING, null, ConfigDef.Importance.HIGH, "The name of the field containing the JSON string. When unset, the whole value is parsed.");
     }
 
     @Override
@@ -111,7 +128,7 @@ public abstract class JsonStringToMap<R extends ConnectRecord<R>> implements Tra
                     record.kafkaPartition(),
                     record.keySchema(),
                     record.key(),
-                    record.valueSchema(),
+                    updatedSchema,
                     updatedValue,
                     record.timestamp()
             );
