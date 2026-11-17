@@ -6,6 +6,7 @@ Custom Kafka Connect **Single Message Transforms (SMTs)** for the OpenSearch sin
 | --- | --- |
 | `com.picflow.transforms.JsonStringToMap$Value` | Parses a JSON string field (e.g. `version_data`) into a nested map |
 | `com.picflow.transforms.NotNullFlag$Value` | Sets a boolean field to whether another field is non-null (e.g. `trashed = trashed_directly != null`) |
+| `com.picflow.transforms.TombstoneIf$Value` | Turns a record into a delete if any rule matches (e.g. `deleted_at != null` or `cover == true`) |
 
 ## JsonStringToMap
 
@@ -26,10 +27,23 @@ Sets `target.field` to `true` if `source.field` is non-null, `false` if it is nu
 | `source.field` | Field whose null-ness is checked |
 | `target.field` | Boolean field to set |
 
+## TombstoneIf
+
+Turns the record into a tombstone (key kept, value and value schema null) if any field in `if.not.null` is non-null or any field in `if.true` is `true`. With `behavior.on.null.values=delete` on the sink, the document is deleted. A field missing from the value never matches; tombstones pass through unchanged.
+
+Only use it for states that never revert: a document deleted here comes back only with the fields of the next Postgres change, without what other processors wrote into it.
+
+| Config | Description |
+| --- | --- |
+| `if.not.null` | Comma-separated fields; the record becomes a tombstone if any is non-null |
+| `if.true` | Comma-separated boolean fields; the record becomes a tombstone if any is `true` |
+
+At least one of the two must be set.
+
 ## Configuration example
 
 ```properties
-transforms=ExtractKey,ExtractAfterField,JsonStringToMapTransform,TrashedFlag
+transforms=ExtractKey,ExtractAfterField,JsonStringToMapTransform,DeleteRemoved,TrashedFlag
 
 transforms.ExtractKey.type=org.apache.kafka.connect.transforms.ExtractField$Key
 transforms.ExtractKey.field=id
@@ -40,6 +54,11 @@ transforms.ExtractAfterField.field=after
 transforms.JsonStringToMapTransform.type=com.picflow.transforms.JsonStringToMap$Value
 transforms.JsonStringToMapTransform.field.name=version_data
 transforms.JsonStringToMapTransform.predicate=isAssetsTopic
+
+transforms.DeleteRemoved.type=com.picflow.transforms.TombstoneIf$Value
+transforms.DeleteRemoved.if.not.null=deleted_at
+transforms.DeleteRemoved.if.true=cover
+transforms.DeleteRemoved.predicate=isAssetsTopic
 
 transforms.TrashedFlag.type=com.picflow.transforms.NotNullFlag$Value
 transforms.TrashedFlag.source.field=trashed_directly
